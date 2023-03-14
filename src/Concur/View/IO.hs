@@ -4,12 +4,13 @@ import Control.Concurrent
 import Control.Concurrent.MVar
 
 import Control.Exception
-import Control.Monad.Free
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
 import Data.IORef
 import Data.Typeable
+
+import Debug.Trace
 
 newtype Step a = Step { step :: IO (Either a (Step a)) }
 
@@ -26,6 +27,7 @@ instance Functor Step where
 instance Applicative Step where
   pure a = Step $ pure (Left a)
   Step f <*> Step a = Step $ do
+    traceIO "<*>"
     f' <- f
     a' <- a
     case (f', a') of
@@ -38,8 +40,8 @@ instance Monad Step where
   Step m >>= f = Step $ do
     r <- m
     case r of
-      Left a   -> step (f a)
-      Right m' -> step (m' >>= f)
+      Left a   -> pure $ Right (f a)
+      Right m' -> pure $ Right (m' >>= f)
 
 instance MonadIO Step where
   liftIO io = Step (Left <$> io)
@@ -56,19 +58,25 @@ suspendable res step = do
   cnt <- newIORef step
   tid <- forkIO (go cnt step `catch` handler cnt)
 
+  traceIO $ show tid
+
   pure tid
   where
     handler :: IORef (Step a) -> Suspend a -> IO ()
     handler cnt (Suspend mCnt) = readIORef cnt >>= putMVar mCnt
 
     go cnt step@(Step io) = do
+      traceIO "step"
       r <- io
+
       case r of
         Left a -> do
+          traceIO "left"
           tid <- myThreadId
           putMVar res (a, tid)
 
         Right step' -> do
+          traceIO "write step"
           writeIORef cnt step'
           go cnt step'
     
@@ -94,13 +102,13 @@ orr s1 s2 = Step $ do
 
 t1 :: Int -> Int -> Step ()
 t1 delay n = do
-  liftIO $ print n
+  liftIO $ traceIO (show n)
   liftIO $ threadDelay delay
   t1 delay (n + 1)
 
 test :: IO ()
 test = run $ do
   (_, cnt) <- orr (t1 1000000 0) (liftIO $ threadDelay 3000000)
-  liftIO $ print "thread2 died, continuing in a bit"
+  liftIO $ traceIO "thread2 died, continuing in a bit"
   liftIO $ threadDelay 3000000
   cnt

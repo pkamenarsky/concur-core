@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 3f8639485643043d0b0c8d230068c1290cd9a958d674d93241d481dd57958762
+-- hash: 7f537c3bcee2c2108f0c125789e916649e9cae915dd68c5f96c484125b46ee51
 
 name:           concur-core
 version:        0.1.0.0
@@ -36,7 +36,6 @@ library
       src
   build-depends:
       base >=4.7 && <5
-    , free
     , stm
     , transformers
   default-language: Haskell2010
@@ -52,7 +51,6 @@ test-suite concur-core-test
   build-depends:
       base >=4.7 && <5
     , concur-core
-    , free
     , stm
     , transformers
   default-language: Haskell2010
