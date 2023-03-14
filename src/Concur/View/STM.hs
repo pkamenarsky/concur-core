@@ -5,6 +5,8 @@ module Concur.View.STM where
 import Control.Applicative
 import Control.Concurrent.STM
 
+import Data.Bifunctor
+
 import qualified Concur.View as V
 
 newtype View v a = View { getView :: V.View (Maybe v) IO STM a }
@@ -21,6 +23,9 @@ mapView f = View . V.mapView (fmap f) . getView
 
 view :: v -> View v a
 view v = View $ V.view (Just v)
+
+orr' :: Semigroup v => [View v a] -> View v (a, View v a)
+orr' = fmap (second View) . View . V.orr' . fmap getView
 
 orr :: Semigroup v => [View v a] -> View v a
 orr = View . V.orr . fmap getView

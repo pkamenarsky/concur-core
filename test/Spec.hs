@@ -8,6 +8,8 @@ import Data.List (group)
 
 import Concur.View
 
+import Debug.Trace
+
 import System.Exit
 
 --------------------------------------------------------------------------------
@@ -42,7 +44,9 @@ viewToList = fmap head . group . go
         showNext (Just (_, Right a)) = [ Just (show a) ]
 
 cmpNubbed :: Show a => TView a -> TView a -> Bool
-cmpNubbed v1 v2 = viewToList v1 == viewToList v2
+cmpNubbed v1 v2
+  | viewToList v1 == viewToList v2 = True
+  | otherwise = trace (show (viewToList v1) <> " should be " <> show (viewToList v2)) False
 
 toViews :: [Maybe String] -> a -> TView a
 toViews []     r = View Nothing (Just (Identity (), Right r))
@@ -210,6 +214,22 @@ t9 = cmpNubbed (andd [ is, is, is ] >> andd [ is, is, is ]) should
     should = toViews
       [Nothing, Just "c", Just "cd", Just "cdc", Just "cdcd", Just "cdcdc", Just "cdcdcd", Just "c", Just "cd", Just "cdc", Just "cdcd", Just "cdcdc", Just "cdcdcd"] "JHJHJH"
 
+t10 :: Bool
+t10 = cmpNubbed is should
+  where
+    is = do
+      (_, n) <- orr'
+        [ pure ()
+        , do
+            orr [ pure (), view (Just "a") ]
+            orr [ pure (), view (Just "b") ]
+            orr [ pure (), view (Just "c") ] 
+        ]
+      n
+      pure "J"
+  
+    should = toViews [Just "a", Just "b", Just "c"] "J"
+
 --------------------------------------------------------------------------------
 
 main :: IO ()
@@ -219,4 +239,4 @@ main = if r
     putStrLn "Failed"
     exitFailure
   where
-    r = and [ t1, t2, t3, t4, t5, t6, t7, t8 ]
+    r = and [ t1, t2, t3, t4, t5, t6, t7, t8, t9, t10 ]

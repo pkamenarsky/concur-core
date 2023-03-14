@@ -73,8 +73,11 @@ instance (Applicative m, Monoid v) => MonadTrans (View v m) where
 view :: Alternative stm => v -> View v m stm a
 view v = View v empty
 
-vor :: Monad stm => Alternative stm => Semigroup v => View (Maybe v) m stm a -> View (Maybe v) m stm a -> View (Maybe v) m stm a
-vor u1 u2 = mapViewWith alt (uncurry (<>)) (go u1 u2)
+vor' :: Monad stm => Alternative stm => Semigroup v
+  => View (Maybe v) m stm a
+  -> View (Maybe v) m stm b
+  -> View (Maybe v) m stm (Either (a, View (Maybe v) m stm b) (b, View (Maybe v) m stm a))
+vor' u1 u2 = mapViewWith alt (uncurry (<>)) (go u1 u2)
   where
     alt (Nothing, Nothing) b = b
     alt a _ = a
@@ -83,9 +86,31 @@ vor u1 u2 = mapViewWith alt (uncurry (<>)) (go u1 u2)
       r <- fmap Left (step view1) <|> fmap Right (step view2)
       case r of
         Left (io, Left view1')  -> pure (io, Left (go view1' view2))
-        Left (io, Right a)      -> pure (io, Right a)
+        Left (io, Right a)      -> pure (io, Right (Left (a, view2)))
         Right (io, Left view2') -> pure (io, Left (go view1 view2'))
-        Right (io, Right a)     -> pure (io, Right a)
+        Right (io, Right a)     -> pure (io, Right (Right (a, view1)))
+
+vor :: Monad stm => Alternative stm => Semigroup v => View (Maybe v) m stm a -> View (Maybe v) m stm a -> View (Maybe v) m stm a
+vor u1 u2 = fromEither <$> vor' u1 u2
+  where
+    fromEither (Left (a, _))  = a
+    fromEither (Right (a, _)) = a
+
+orr' :: Monad stm => Alternative stm => Semigroup v => Applicative m => [View (Maybe v) m stm a] -> View (Maybe v) m stm (a, View (Maybe v) m stm a)
+orr' = foldr f (view Nothing)
+  where
+    f :: Monad stm => Alternative stm => Applicative m => Semigroup v
+      => View (Maybe v) m stm a
+      -> View (Maybe v) m stm (a, View (Maybe v) m stm a)
+      -> View (Maybe v) m stm (a, View (Maybe v) m stm a)
+    f u1 u2 = do
+      r <- u1 `vor'` u2
+      case r of
+        Left (a, u2')         -> pure (a, do
+                                          (a', n) <- u2'
+                                          pure a' `vor` n
+                                      )
+        Right ((a, u2'), u1') -> pure (a, u1' `vor` u2')
 
 orr :: Monad stm => Alternative stm => Semigroup v => [View (Maybe v) m stm a] -> View (Maybe v) m stm a
 orr = foldr vor (view Nothing)
