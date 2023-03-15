@@ -18,10 +18,11 @@ import Debug.Trace
 type Path = [Int]
 type Frame = Int
 
+type Patch v = [(Path, v)]
+
 data Ctx v = Ctx
   { ctxPath  :: [Int]
-  , ctxPatch :: Frame -> Path -> v -> IO ()
-  , ctxFrame :: IORef Frame
+  , ctxPatch :: MVar (Patch v)
   }
 
 -- NOTE: don't use forkIO in Views - the View thread may be killed at anytime, leaving
@@ -32,11 +33,11 @@ newtype View v a = View (ReaderT (Ctx v) IO a)
 
 run :: Show v => View v a -> IO a
 run (View r) = do
-  ctxFrame <- newIORef 0
-  runReaderT r (Ctx [] (\frame path v -> traceIO (show frame <> ", " <> show path <> ", " <> show v)) ctxFrame)
+  ctxPatch <- newEmptyMVar
+  runReaderT r (Ctx [] ctxPatch)
 
 instance Alternative (View v) where
-  empty = View $ liftIO $ threadDelay maxBound >> pure undefined
+  empty = View $ liftIO $ myThreadId >>= killThread >> pure undefined
 
   View v1 <|> View v2 = View $ do
     ctx <- ask
@@ -46,22 +47,23 @@ instance Alternative (View v) where
       bracket (fork ctx res) kill $ \_ -> takeMVar res
 
     where
+      patch = do
+        undefined
+
       fork ctx res = do
-        f1  <- newIORef 0
-        f2  <- newIORef 0
+        tid1 <- forkIO $ runReaderT v1 (mkCtx (0:) ctx) >>= putMVar res
+        tid2 <- forkIO $ runReaderT v2 (mkCtx (1:) ctx) >>= putMVar res
+        ptid <- forkIO patch
 
-        t1 <- forkIO $ runReaderT v1 (mkCtx f1 (0:) ctx) >>= putMVar res
-        t2 <- forkIO $ runReaderT v2 (mkCtx f2 (1:) ctx) >>= putMVar res
+        pure (tid1, tid2, ptid)
 
-        pure (t1, t2)
+      kill (tid1, tid2, ptid) = uninterruptibleMask_ $ do
+        killThread tid1
+        killThread tid2
+        killThread ptid
 
-      kill (t1, t2) = uninterruptibleMask_ $ do
-        killThread t1
-        killThread t2
-
-      mkCtx fref pathf ctx = ctx
+      mkCtx pathf ctx = ctx
         { ctxPath  = pathf (ctxPath ctx)
-        , ctxFrame = fref
         }
 
 view :: v -> View v ()
@@ -69,8 +71,7 @@ view v = View $ do
   Ctx {..} <- ask
 
   liftIO $ do
-    frame <- atomicModifyIORef' ctxFrame $ \f -> (f + 1, f)
-    ctxPatch frame ctxPath v
+    putMVar ctxPatch [(ctxPath, v)]
 
 --------------------------------------------------------------------------------
 
@@ -86,9 +87,11 @@ testviews :: IO ()
 testviews = do
   tid <- myThreadId
   run $ do
-    v1 "A" 1000000 <|> v1 "B" 2000000 <|> (v1 "C" 500000 <|> v1 "D" 700000) <|> killMe tid
+    empty <|> empty <|> v1 "A" 1000000 <|> v1 "B" 2000000 <|> (v1 "C" 500000 <|> v1 "D" 700000) <|> killMe tid
   where
     killMe tid = liftIO $ do
       threadDelay 5000000
       traceIO "killing"
       killThread tid
+
+--------------------------------------------------------------------------------
