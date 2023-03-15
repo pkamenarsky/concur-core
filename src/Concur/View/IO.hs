@@ -24,16 +24,16 @@ data Ctx v = Ctx
   , ctxFrame :: IORef Frame
   }
 
+-- NOTE: don't use forkIO in Views - the View thread may be killed at anytime, leaving
+-- orphaned threads hanging around
+
 newtype View v a = View (ReaderT (Ctx v) IO a)
-  deriving (Functor, Applicative, Monad)
+  deriving (Functor, Applicative, Monad, MonadIO)
 
 run :: Show v => View v a -> IO a
 run (View r) = do
   ctxFrame <- newIORef 0
   runReaderT r (Ctx [] (\frame path v -> traceIO (show frame <> ", " <> show path <> ", " <> show v)) ctxFrame)
-
--- TODO: MonadIO; the problem is that spawned threads in Views will not be killed
--- automatically with an unrestricted MonadIO instance
 
 instance Alternative (View v) where
   empty = View $ liftIO $ threadDelay maxBound >> pure undefined
@@ -72,18 +72,10 @@ view v = View $ do
     frame <- atomicModifyIORef' ctxFrame $ \f -> (f + 1, f)
     ctxPatch frame ctxPath v
 
-async :: IO a -> View v a
-async m = View $ liftIO $ do
-  res <- newEmptyMVar
-  bracket (fork res) kill  $ \_ -> takeMVar res
-  where
-    fork res = forkIO (m >>= putMVar res)
-    kill tid = uninterruptibleMask_ (killThread tid)
-
 --------------------------------------------------------------------------------
 
 v1 :: String -> Int -> View String ()
-v1 label wait = async (go 0)
+v1 label wait = liftIO (go 0)
   where
     go n = do
       traceIO (label <> ": " <> show n)
@@ -94,9 +86,9 @@ testviews :: IO ()
 testviews = do
   tid <- myThreadId
   run $ do
-    v1 "A" 1000000 <|> v1 "B" 2000000 <|> killMe tid
+    v1 "A" 1000000 <|> v1 "B" 2000000 <|> (v1 "C" 500000 <|> v1 "D" 700000) <|> killMe tid
   where
-    killMe tid = async $ do
+    killMe tid = liftIO $ do
       threadDelay 5000000
       traceIO "killing"
       killThread tid
