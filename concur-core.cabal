@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.35.1.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 6e061a69044fd7bf5eeebeb6f1ab92ecbe8ed5fd59e5b032508a15a52772b1a8
+-- hash: 7f537c3bcee2c2108f0c125789e916649e9cae915dd68c5f96c484125b46ee51
 
 name:           concur-core
 version:        0.1.0.0
@@ -28,6 +28,7 @@ source-repository head
 library
   exposed-modules:
       Concur.View
+      Concur.View.IO
       Concur.View.STM
   other-modules:
       Paths_concur_core
