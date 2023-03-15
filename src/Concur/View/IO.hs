@@ -43,7 +43,7 @@ run (View r) = do
   where
     fork chPatch = forkIO $ forever $ do
       p <- takeMVar chPatch
-      traceIO (show p)
+      traceIO $ "run: " <> show p
 
     kill = uninterruptibleMask_ . killThread
 
@@ -74,13 +74,11 @@ instance (Show v, Monoid v) => Alternative (View v) where
       bracket (fork res ctx chPatch) kill $ \_ -> takeMVar res
 
     where
-      -- blocked/blocked -> blocked, then before next view -> clear own path
-      -- view/blocked, blocked/view, view/view -> clear own path, send assembled view patch
-
       mkPath ctx paths = [ (ctxIndex ctx:path, v) | (path, v) <- paths ]
 
       pipe f ctx chPatch = do
         p <- takeMVar chPatch
+        -- traceIO $ "pipe: " <> show p
 
         case p of
           -- Blocked _     -> putMVar (ctxPatch ctx) $ Blocked (ctxIndex ctx)
@@ -98,7 +96,7 @@ instance (Show v, Monoid v) => Alternative (View v) where
         -- traceIO ("just/just: " <> show p1 <> ", " <> show p2)
 
         putMVar (ctxPatch ctx) $ Patch (ctxIndex ctx) $ mconcat
-          [ [([ctxIndex ctx], mempty)]    -- clear path
+          [ [([ctxIndex ctx], mempty)]
 
           , case p1 of
               Patch _ paths -> mkPath ctx paths
@@ -117,8 +115,11 @@ instance (Show v, Monoid v) => Alternative (View v) where
         -- traceIO (show p)
 
         case patchIndex p of
-          0 -> patcher ctx chPatch (Just p) v2
-          1 -> patcher ctx chPatch v1 (Just p)
+          0 -> patcher ctx chPatch (Just $ choosePatch v1 p) v2
+          1 -> patcher ctx chPatch v1 (Just $ choosePatch v2 p)
+
+      choosePatch (Just p@(Patch _ _)) (Blocked _) = p
+      choosePatch _ p = p
 
       fork res ctx chPatch = do
         tid1 <- forkIO $ runReaderT v1 (Ctx 0 chPatch) >>= putMVar res
@@ -159,12 +160,15 @@ testviews = do
   run $ do
     -- see if empty fucks up things
 
-    -- empty <|> empty <|> v1 "A" 1000000 <|> v1 "B" 2000000 <|> (v1 "C" 500000 <|> v1 "D" 700000) <|> killMe tid
-    v1 "A" 1000000 <|> v1 "B" 2000000 <|> (v1 "C" 500000 <|> v1 "D" 700000) <|> killMe tid
+    empty <|> empty <|> v1 "A" 1000000 <|> v1 "B" 2000000 <|> (v1 "C" 500000 <|> v1 "D" 700000) <|> killMe tid
+    -- v1 "A" 1000000 <|> v1 "B" 2000000 <|> (v1 "C" 500000 <|> v1 "D" 700000) <|> killMe tid
+    -- empty <|> v1 "A" 1000000 <|> v1 "B" 2000000 <|> killMe tid
   where
-    killMe tid = liftIO $ do
-      threadDelay 10000000
-      traceIO "killing"
-      killThread tid
+    killMe tid = do
+      view "kill hehe"
+      liftIO $ do
+        threadDelay 10000000
+        traceIO "killing"
+        killThread tid
 
 --------------------------------------------------------------------------------
